@@ -27,7 +27,7 @@ MAIN_KEYBOARD = ReplyKeyboardMarkup(
         [KeyboardButton("📊 Статистика"),        KeyboardButton("❓ Помощь")],
     ],
     resize_keyboard=True,
-    persistent=True,
+    is_persistent=True,
 )
 
 
