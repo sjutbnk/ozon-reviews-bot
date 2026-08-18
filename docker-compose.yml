@@ -1,0 +1,11 @@
+services:
+  ozon-bot:
+    build: .
+    container_name: ozon_reviews_bot
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      - ozon_bot_data:/app/data
+    environment:
+      - DB_PATH=/app/data/bot.db
