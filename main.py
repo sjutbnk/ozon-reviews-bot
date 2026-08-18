@@ -20,6 +20,8 @@ from handlers.commands import (
     cmd_check_reviews,
     cmd_upload,
     handle_document,
+    handle_keyboard_button,
+    BUTTON_HANDLERS,
 )
 from handlers.reviews import handle_callback
 from poller import poll_reviews
@@ -43,12 +45,21 @@ def main():
         .build()
     )
 
+    # Commands (slash)
     app.add_handler(CommandHandler("start", cmd_start))
     app.add_handler(CommandHandler("auth", cmd_auth))
     app.add_handler(CommandHandler("help", cmd_help))
     app.add_handler(CommandHandler("stats", cmd_stats))
     app.add_handler(CommandHandler("check_reviews", cmd_check_reviews))
     app.add_handler(CommandHandler("upload", cmd_upload))
+
+    # Keyboard buttons (text messages matching button labels)
+    app.add_handler(MessageHandler(
+        filters.TEXT & filters.Regex("^(" + "|".join(BUTTON_HANDLERS.keys()) + ")$"),
+        handle_keyboard_button,
+    ))
+
+    # Documents & Inline callbacks
     app.add_handler(MessageHandler(filters.Document.ALL, handle_document))
     app.add_handler(CallbackQueryHandler(handle_callback))
 
