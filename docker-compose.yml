@@ -9,3 +9,6 @@ services:
       - ozon_bot_data:/app/data
     environment:
       - DB_PATH=/app/data/bot.db
+
+volumes:
+  ozon_bot_data:
