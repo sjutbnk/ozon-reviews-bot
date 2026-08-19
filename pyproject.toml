@@ -1,0 +1,20 @@
+[project]
+name = "ozon-reviews-bot"
+version = "0.1.0"
+description = "Internal Telegram bot for processing Ozon reviews"
+requires-python = ">=3.11"
+dependencies = [
+  "python-telegram-bot[job-queue]>=21.0,<22",
+  "playwright>=1.45",
+  "pandas>=2.2",
+  "openpyxl>=3.1",
+  "httpx>=0.27",
+  "pydantic-settings>=2.2",
+]
+
+[project.scripts]
+ozon-reviews-bot = "main:main"
+
+[tool.ruff]
+line-length = 100
+
