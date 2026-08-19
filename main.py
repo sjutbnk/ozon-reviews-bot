@@ -23,12 +23,15 @@ async def run():
             if db.record_delivery(row['review_id'], uid, 0): await app.bot.send_message(uid, *card(row), parse_mode='HTML')
     poller = ReviewPoller(db, ozon, generator, settings.poll_interval_seconds, deliver)
     register_commands(app, db, settings, poller); register_review_handlers(app, db, ozon, generator, settings.max_reply_length)
-    try:
-        await ozon.start()
-    except Exception as exc:
-        logging.getLogger(__name__).error('Ozon session is unavailable: %s', exc)
     async with app:
-        await app.start(); await app.updater.start_polling()
+        # Telegram must start before optional Ozon/Playwright initialization:
+        # a broken session must not prevent /start and /auth from working.
+        await app.start()
+        await app.updater.start_polling()
+        try:
+            await ozon.start()
+        except Exception as exc:
+            logging.getLogger(__name__).error('Ozon session is unavailable: %s', exc)
         poll_task = asyncio.create_task(poller.run())
         try: await asyncio.Event().wait()
         finally:
