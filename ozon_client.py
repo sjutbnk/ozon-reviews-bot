@@ -16,8 +16,7 @@ async def get_unanswered_reviews(page_size: int = 100) -> list[dict]:
     url = f"{OZON_BASE_URL}/v1/review/list"
     payload = {
         "filter": {},
-        "page": 1,
-        "page_size": page_size,
+        "limit": 100,
     }
     async with aiohttp.ClientSession() as session:
         async with session.post(url, json=payload, headers=HEADERS) as resp:
