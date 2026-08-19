@@ -2,6 +2,20 @@
 
 Внутренний Telegram-бот для работы с отзывами Ozon.
 
+## Запуск
+
+```bash
+uv venv .venv
+uv sync
+uv run playwright install chromium
+cp .env.example .env
+# заполните TELEGRAM_TOKEN и AUTH_PASSWORD в .env
+uv run python create_ozon_session.py
+uv run python main.py
+```
+
+Без реального `TELEGRAM_TOKEN` Telegram отклонит подключение, и `/start` работать не будет.
+
 ## Суть
 
 - получает новые отзывы из Ozon;

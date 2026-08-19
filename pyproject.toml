@@ -15,6 +15,18 @@ dependencies = [
 [project.scripts]
 ozon-reviews-bot = "main:main"
 
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+py-modules = [
+  "main", "config", "database", "ai_generator", "ozon_client", "poller",
+  "create_ozon_session",
+]
+
+[tool.setuptools.packages.find]
+include = ["handlers*"]
+
 [tool.ruff]
 line-length = 100
-

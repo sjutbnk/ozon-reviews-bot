@@ -1,10 +1,34 @@
+from html import escape
+
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.ext import ContextTypes, ConversationHandler, MessageHandler, CallbackQueryHandler, filters
 
 EDITING = 1
+
+
 def card(row):
-    text = f'⭐ {row["rating"]}/5\n{row["text"]}\n\n<b>Черновик:</b>\n{row["draft"] or "нет"}'
-    keyboard = [[InlineKeyboardButton('Отправить', callback_data=f'send:{row["review_id"]}'), InlineKeyboardButton('Изменить', callback_data=f'edit:{row["review_id"]}')], [InlineKeyboardButton('Перегенерировать', callback_data=f'regen:{row["review_id"]}'), InlineKeyboardButton('Пропустить', callback_data=f'skip:{row["review_id"]}')]]
+    rating = max(0, min(5, int(row["rating"])))
+    stars = '★' * rating + '☆' * (5 - rating)
+    review = escape(str(row["text"] or 'Текст отзыва отсутствует'))
+    draft = escape(str(row["draft"] or 'Черновик ещё не сгенерирован.'))
+    text = (
+        '<b>OZON REVIEW DESK</b>\n'
+        '━━━━━━━━━━━━━━━━\n'
+        f'<b>РЕЙТИНГ</b>  {stars}  {rating}/5\n\n'
+        f'<b>ОТЗЫВ</b>\n{review}\n\n'
+        f'<b>ЧЕРНОВИК ОТВЕТА</b>\n{draft}\n\n'
+        'Выберите действие:'
+    )
+    keyboard = [
+        [
+            InlineKeyboardButton('✅ Опубликовать', callback_data=f'send:{row["review_id"]}'),
+            InlineKeyboardButton('✏️ Изменить', callback_data=f'edit:{row["review_id"]}'),
+        ],
+        [
+            InlineKeyboardButton('🔄 Новый вариант', callback_data=f'regen:{row["review_id"]}'),
+            InlineKeyboardButton('⏭ Пропустить', callback_data=f'skip:{row["review_id"]}'),
+        ],
+    ]
     return text, InlineKeyboardMarkup(keyboard)
 
 def register_review_handlers(app, db, ozon, generator, max_length):
