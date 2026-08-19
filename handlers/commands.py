@@ -43,7 +43,7 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         poller.add_subscriber(user_id)
         await update.message.reply_text(
             "👋 Добро пожаловать!\n\n"
-            "Бот автоматически проверяет новые отзывы на Ozon каждые 5 минут "
+            "Бот автоматически проверяет новые отзывы на Ozon "
             "и предлагает готовые ответы в вашем стиле.",
             reply_markup=main_keyboard(),
         )
