@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import sqlite3
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Iterator
 
@@ -39,7 +39,8 @@ class Database:
             CREATE TABLE IF NOT EXISTS reviews (
                 review_id TEXT PRIMARY KEY, rating INTEGER NOT NULL, text TEXT NOT NULL,
                 product_name TEXT, status TEXT NOT NULL DEFAULT 'new', draft TEXT,
-                locked_by INTEGER, locked_at TEXT, published_at TEXT, updated_at TEXT NOT NULL
+                locked_by INTEGER, locked_at TEXT, published_at TEXT, last_error TEXT,
+                updated_at TEXT NOT NULL
             );
             CREATE TABLE IF NOT EXISTS deliveries (
                 review_id TEXT NOT NULL, user_id INTEGER NOT NULL, message_id INTEGER NOT NULL,
@@ -51,6 +52,9 @@ class Database:
             );
             CREATE INDEX IF NOT EXISTS idx_reviews_status ON reviews(status);
             """)
+            columns = {row[1] for row in c.execute("PRAGMA table_info(reviews)")}
+            if 'last_error' not in columns:
+                c.execute('ALTER TABLE reviews ADD COLUMN last_error TEXT')
 
     def is_authorized(self, user_id: int) -> bool:
         with self.connection() as c:
@@ -104,27 +108,42 @@ class Database:
         with self.connection() as c:
             c.execute("BEGIN IMMEDIATE")
             row = c.execute("SELECT status,locked_by FROM reviews WHERE review_id=?", (review_id,)).fetchone()
-            if not row or row[0] in ("published", "skipped") or (row[1] and row[1] != user_id):
+            if not row or row[0] in ("published", "skipped", "sending"):
                 c.rollback(); return False
-            c.execute("UPDATE reviews SET status='sending',locked_by=?,locked_at=?,updated_at=? WHERE review_id=?", (user_id, utcnow(), utcnow(), review_id))
+            c.execute("UPDATE reviews SET status='sending',locked_by=?,locked_at=?,last_error=NULL,updated_at=? WHERE review_id=?", (user_id, utcnow(), utcnow(), review_id))
             c.commit(); return True
 
     def mark_published(self, review_id: str, user_id: int) -> None:
         with self.connection() as c:
-            c.execute("UPDATE reviews SET status='published',published_at=?,locked_by=NULL,updated_at=? WHERE review_id=? AND status='sending' AND locked_by=?", (utcnow(), utcnow(), review_id, user_id))
+            c.execute("UPDATE reviews SET status='published',published_at=?,locked_by=NULL,locked_at=NULL,last_error=NULL,updated_at=? WHERE review_id=? AND status='sending' AND locked_by=?", (utcnow(), utcnow(), review_id, user_id))
 
     def mark_error(self, review_id: str, details: str = "") -> None:
         with self.connection() as c:
-            c.execute("UPDATE reviews SET status='error',locked_by=NULL,updated_at=? WHERE review_id=?", (utcnow(), review_id))
+            c.execute("UPDATE reviews SET status='error',locked_by=NULL,locked_at=NULL,last_error=?,updated_at=? WHERE review_id=?", (details[:2000], utcnow(), review_id))
+
+    def release_stale_claims(self, max_age_seconds: int = 900) -> int:
+        cutoff = (datetime.now(timezone.utc) - timedelta(seconds=max_age_seconds)).isoformat()
+        with self.connection() as c:
+            cur = c.execute(
+                """UPDATE reviews SET status='error', locked_by=NULL, locked_at=NULL,
+                   last_error='Отправка прервана после тайм-аута', updated_at=?
+                   WHERE status='sending' AND locked_at IS NOT NULL AND locked_at < ?""",
+                (utcnow(), cutoff),
+            )
+            return cur.rowcount
 
     def skip(self, review_id: str, user_id: int) -> None:
         with self.connection() as c:
             c.execute("UPDATE reviews SET status='skipped',locked_by=NULL,updated_at=? WHERE review_id=? AND status NOT IN ('published','skipped')", (utcnow(), review_id))
         self.log_action(review_id, user_id, "skip")
 
+    def is_delivered(self, review_id: str, user_id: int) -> bool:
+        with self.connection() as c:
+            return c.execute("SELECT 1 FROM deliveries WHERE review_id=? AND user_id=?", (review_id, user_id)).fetchone() is not None
+
     def record_delivery(self, review_id: str, user_id: int, message_id: int) -> bool:
         with self.connection() as c:
-            cur = c.execute("INSERT OR IGNORE INTO deliveries VALUES (?, ?, ?, ?)", (review_id, user_id, message_id, utcnow()))
+            cur = c.execute("INSERT OR REPLACE INTO deliveries VALUES (?, ?, ?, ?)", (review_id, user_id, message_id, utcnow()))
             return cur.rowcount == 1
 
     def log_action(self, review_id: str, user_id: int, action: str, details: str = "") -> None:

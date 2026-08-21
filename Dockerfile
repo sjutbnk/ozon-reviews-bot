@@ -7,12 +7,12 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
-COPY pyproject.toml ./
+COPY . .
+
 RUN pip install --upgrade pip && \
     pip install . && \
-    playwright install --with-deps chromium
-
-COPY . .
-RUN mkdir -p /app/data /app/storage
+    playwright install --with-deps chromium && \
+    mkdir -p /app/data /app/storage
 
 CMD ["python", "main.py"]
+
