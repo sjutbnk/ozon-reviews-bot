@@ -41,9 +41,11 @@ def authorized(db):
 def session_prompt() -> str:
     return (
         "🔐 <b>Подключение Ozon</b>\n\n"
-        "Нажмите «Открыть Ozon». Бот откроет окно браузера на этом компьютере.\n"
-        "Войдите в кабинет Ozon вручную, затем вернитесь в Telegram и нажмите «Я вошёл».\n"
-        "Пароль, CAPTCHA и код подтверждения вводятся только на странице Ozon — бот их не видит."
+        "<b>Способ 1 (Самый простой для Docker / VPS)</b>:\n"
+        "Войдите в <code>seller.ozon.ru</code> в браузере, экспортируйте cookies (через расширение <i>Cookie-Editor</i>) "
+        "и просто пришлите JSON-файл или скопированный текст прямо в этот чат.\n\n"
+        "<b>Способ 2 (Через окно на компьютере)</b>:\n"
+        "Нажмите «Открыть Ozon». Бот откроет окно браузера на этом компьютере. Войдите в Ozon и нажмите «Я вошёл»."
     )
 
 
@@ -76,6 +78,55 @@ async def _safe_edit_text(query, text: str, reply_markup=None, parse_mode: str |
     except BadRequest as exc:
         if "Message is not modified" not in str(exc):
             raise
+
+
+async def _import_ozon_session(raw: bytes | str, reply_target, db, settings, poller, ozon, user_id: int) -> bool:
+    try:
+        raw_bytes = raw.encode("utf-8") if isinstance(raw, str) else raw
+        with tempfile.TemporaryDirectory(dir=Path(settings.ozon_storage_state).parent) as directory:
+            candidate = Path(directory) / "ozon_state.json"
+            save_storage_state(raw_bytes, candidate)
+            probe = OzonClient(candidate, settings.ozon_reviews_url)
+            try:
+                await probe.start()
+                await probe.validate_session()
+            finally:
+                await probe.close()
+    except SessionFileError as exc:
+        await reply_target.reply_text(f"⚠️ <b>Сессия не принята:</b>\n{exc}", parse_mode="HTML")
+        return False
+    except Exception:
+        logger.exception("Ozon session upload validation failed")
+        await reply_target.reply_text(
+            "⚠️ Ozon не подтвердил новую сессию (сессия не авторизована или истекла). "
+            "Войдите в Seller и экспортируйте куки заново."
+        )
+        return False
+
+    try:
+        save_storage_state(raw_bytes, settings.ozon_storage_state)
+    except Exception:
+        logger.exception("Could not save validated Ozon session")
+        await reply_target.reply_text("⚠️ Не удалось сохранить проверенный файл сессии.")
+        return False
+
+    try:
+        if ozon is not None:
+            await ozon.restart()
+        count = await poller.check_once()
+        db.log_action(None, user_id, "upload_ozon_session")
+        await reply_target.reply_text(
+            f"✅ <b>Ozon-сессия успешно обновлена и проверена!</b>\n"
+            f"Поиск отзывов выполнен. Новых без ответа: <b>{count}</b>.",
+            parse_mode="HTML",
+        )
+        return True
+    except Exception:
+        logger.exception("Ozon session check failed after upload")
+        await reply_target.reply_text(
+            "⚠️ Файл сохранён, но при проверке Ozon возникла ошибка. Проверьте логи."
+        )
+        return True
 
 
 def register_commands(app, db, settings, poller, ozon=None) -> None:
@@ -206,61 +257,24 @@ def register_commands(app, db, settings, poller, ozon=None) -> None:
         if not db.is_authorized(update.effective_user.id):
             return
         doc = update.message.document
-        if context.user_data.pop("awaiting_session_upload", False):
-            file_name = (doc.file_name or "").lower()
-            if not file_name.endswith(".json"):
-                await update.message.reply_text("⚠️ Нужен файл <code>ozon_state.json</code>.", parse_mode="HTML")
-                return
+        file_name = (doc.file_name or "").lower()
+        if file_name.endswith(".json") or context.user_data.pop("awaiting_session_upload", False):
+            context.user_data.pop("awaiting_session_upload", None)
             if doc.file_size and doc.file_size > MAX_STORAGE_STATE_BYTES:
-                await update.message.reply_text("⚠️ Файл сессии слишком большой.")
+                await update.message.reply_text("⚠️ Файл сессии слишком большой (максимум 5 МБ).")
                 return
-            try:
-                raw = bytes(await (await context.bot.get_file(doc.file_id)).download_as_bytearray())
-                with tempfile.TemporaryDirectory(dir=Path(settings.ozon_storage_state).parent) as directory:
-                    candidate = Path(directory) / "ozon_state.json"
-                    save_storage_state(raw, candidate)
-                    probe = OzonClient(candidate, settings.ozon_reviews_url)
-                    try:
-                        await probe.start()
-                        await probe.validate_session()
-                    finally:
-                        await probe.close()
-            except SessionFileError as exc:
-                await update.message.reply_text(f"⚠️ <b>Сессия не загружена</b>\n{exc}", parse_mode="HTML")
-                return
-            except Exception:
-                logger.exception("Ozon session upload validation failed")
-                await update.message.reply_text("⚠️ Ozon не подтвердил новую сессию. Текущий файл не изменён.")
-                return
-            try:
-                save_storage_state(raw, settings.ozon_storage_state)
-            except Exception:
-                logger.exception("Could not save validated Ozon session")
-                await update.message.reply_text("⚠️ Не удалось сохранить проверенный файл сессии.")
-                return
-            try:
-                if ozon is None:
-                    raise RuntimeError("Ozon client is unavailable")
-                await ozon.restart()
-                count = await poller.check_once()
-                db.log_action(None, update.effective_user.id, "upload_ozon_session")
-                await update.message.reply_text(
-                    f"✅ <b>Ozon-сессия обновлена</b>\nПроверка выполнена. Новых отзывов: <b>{count}</b>.",
-                    parse_mode="HTML",
-                )
-            except Exception:
-                logger.exception("Ozon session check failed after upload")
-                await update.message.reply_text(
-                    "⚠️ Файл сохранён, но Ozon не подтвердил сессию. Проверьте вход в Seller и попробуйте создать файл заново."
-                )
+            raw = bytes(await (await context.bot.get_file(doc.file_id)).download_as_bytearray())
+            await _import_ozon_session(raw, update.message, db, settings, poller, ozon, update.effective_user.id)
             return
 
         if not context.user_data.pop("awaiting_examples", False):
-            return
-        file_name = (doc.file_name or "").lower()
+            if not file_name.endswith((".csv", ".xlsx")):
+                return
+
         if not file_name.endswith((".csv", ".xlsx")):
             await update.message.reply_text(
-                "⚠️ Поддерживаются только файлы <code>.csv</code> и <code>.xlsx</code>.", parse_mode="HTML"
+                "⚠️ Поддерживаются только файлы <code>.csv</code> и <code>.xlsx</code> (или <code>.json</code> для сессии).",
+                parse_mode="HTML",
             )
             return
         raw = await (await context.bot.get_file(doc.file_id)).download_as_bytearray()
@@ -280,6 +294,16 @@ def register_commands(app, db, settings, poller, ozon=None) -> None:
             )
         except Exception as exc:
             await update.message.reply_text(f"⚠️ <b>Не удалось загрузить файл</b>\n{exc}", parse_mode="HTML")
+
+    async def pasted_json_session(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+        if not db.is_authorized(update.effective_user.id):
+            return
+        if context.user_data.get("editing"):
+            return
+        text = (update.message.text or "").strip()
+        if (text.startswith("[") and text.endswith("]")) or (text.startswith("{") and text.endswith("}")):
+            if '"cookies"' in text or '"name"' in text or "ozon.ru" in text or "__Secure" in text:
+                await _import_ozon_session(text, update.message, db, settings, poller, ozon, update.effective_user.id)
 
     async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if await authorized(db)(update, context):
@@ -320,5 +344,6 @@ def register_commands(app, db, settings, poller, ozon=None) -> None:
     app.add_handler(CommandHandler("cancel", cancel))
     app.add_handler(CallbackQueryHandler(session_callback, pattern=r"^ozon_session:"))
     app.add_handler(MessageHandler(filters.Document.ALL, document))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, pasted_json_session))
     for label, handler in MAIN_MENU_ACTIONS:
         app.add_handler(MessageHandler(filters.Regex(f"^{label}$"), locals()[handler]))
