@@ -48,6 +48,18 @@ class OzonSessionTests(unittest.TestCase):
         self.assertEqual(saved["cookies"][0]["value"], "xyz123")
         self.assertEqual(saved["cookies"][0]["domain"], ".ozon.ru")
 
+    def test_converts_cookie_editor_with_utf8_bom_and_null_fields(self):
+        cookie_text_with_bom = (
+            b'\xef\xbb\xbf[{"name": "__Secure-user-id", "value": "10874408", "domain": ".ozon.ru", '
+            b'"path": "/", "sameSite": "lax", "expirationDate": 1818934577.77, "storeId": null}]'
+        )
+        save_storage_state(cookie_text_with_bom, self.target)
+        saved = json.loads(self.target.read_text())
+        self.assertEqual(saved["cookies"][0]["name"], "__Secure-user-id")
+        self.assertEqual(saved["cookies"][0]["value"], "10874408")
+        self.assertEqual(saved["cookies"][0]["sameSite"], "Lax")
+
+
 
 class OzonSessionValidationTests(unittest.IsolatedAsyncioTestCase):
     async def test_client_exposes_operation_lock(self):

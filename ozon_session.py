@@ -16,9 +16,10 @@ def normalize_storage_state(raw: bytes | str) -> dict:
     if len(raw) > MAX_STORAGE_STATE_BYTES:
         raise SessionFileError('Файл сессии слишком большой (максимум 5 МБ).')
     try:
-        data = json.loads(raw)
+        text = raw.decode('utf-8-sig').strip()
+        data = json.loads(text)
     except (TypeError, UnicodeDecodeError, json.JSONDecodeError) as exc:
-        raise SessionFileError('Данные должны быть корректным JSON.') from exc
+        raise SessionFileError('Данные должны быть корректным JSON (в .json или .txt файле).') from exc
 
     if isinstance(data, dict):
         if 'cookies' not in data or not isinstance(data.get('cookies'), list):

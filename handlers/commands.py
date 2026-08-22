@@ -51,7 +51,7 @@ def session_prompt() -> str:
         "   • Нажмите иконку <b>Cookie-Editor</b> на панели расширений.\n"
         "   • Нажмите <b>Export</b> ➔ <b>Export as JSON</b> (куки скопируются в буфер обмена).\n\n"
         "3️⃣ <b>Отправьте данные боту</b>:\n"
-        "   • Просто <b>вставьте скопированный текст</b> сюда в чат (Ctrl+V) или отправьте сохраненный <code>.json</code> файл.\n\n"
+        "   • Просто <b>вставьте скопированный текст</b> сюда в чат (Ctrl+V) или отправьте сохраненный <code>.json</code> / <code>.txt</code> файл.\n\n"
         "<i>Бот автоматически проверит валидность сессии и сразу начнет поиск новых отзывов.</i>"
     )
 
@@ -242,7 +242,7 @@ def register_commands(app, db, settings, poller, ozon=None) -> None:
             return
         doc = update.message.document
         file_name = (doc.file_name or "").lower()
-        if file_name.endswith(".json") or context.user_data.pop("awaiting_session_upload", False):
+        if file_name.endswith((".json", ".txt")) or context.user_data.pop("awaiting_session_upload", False):
             context.user_data.pop("awaiting_session_upload", None)
             if doc.file_size and doc.file_size > MAX_STORAGE_STATE_BYTES:
                 await update.message.reply_text("⚠️ Файл сессии слишком большой (максимум 5 МБ).")
@@ -257,7 +257,7 @@ def register_commands(app, db, settings, poller, ozon=None) -> None:
 
         if not file_name.endswith((".csv", ".xlsx")):
             await update.message.reply_text(
-                "⚠️ Поддерживаются только файлы <code>.csv</code> и <code>.xlsx</code> (или <code>.json</code> для сессии).",
+                "⚠️ Поддерживаются файлы <code>.csv</code> и <code>.xlsx</code> (для примеров) или <code>.json</code> / <code>.txt</code> (для сессии).",
                 parse_mode="HTML",
             )
             return
