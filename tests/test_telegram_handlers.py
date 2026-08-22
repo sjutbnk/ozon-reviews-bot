@@ -75,3 +75,23 @@ class TelegramHandlerIntegrationTests(unittest.TestCase):
         context = SimpleNamespace(error=BadRequest("Message is not modified: specified new message content"))
         # Should not raise
         asyncio.run(error_handler(None, context))
+
+    def test_all_slash_commands_and_menu_buttons_are_registered(self):
+        from telegram.ext import CommandHandler, MessageHandler
+        from handlers.commands import MAIN_MENU_ACTIONS
+
+        app = FakeApp()
+        register_commands(app, FakeDb(), FakeSettings(), poller=None)
+
+        command_names = {
+            cmd for h in app.handlers.get(0, []) if isinstance(h, CommandHandler) for cmd in h.commands
+        }
+        self.assertTrue({"start", "auth", "check", "examples", "session", "stats", "help", "cancel"}.issubset(command_names))
+
+        button_patterns = [
+            h.filters.pattern.pattern for h in app.handlers.get(0, [])
+            if isinstance(h, MessageHandler) and getattr(h.filters, "pattern", None) is not None
+        ]
+        for label, _ in MAIN_MENU_ACTIONS:
+            self.assertIn(f"^{label}$", button_patterns)
+

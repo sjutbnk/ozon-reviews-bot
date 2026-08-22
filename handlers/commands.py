@@ -338,12 +338,25 @@ def register_commands(app, db, settings, poller, ozon=None) -> None:
             await wizard.close()
         await update.message.reply_text("Действие отменено.", reply_markup=main_menu())
 
+    # 1. Slash commands
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("auth", auth))
+    app.add_handler(CommandHandler("check", check))
+    app.add_handler(CommandHandler("examples", examples))
+    app.add_handler(CommandHandler("session", session))
+    app.add_handler(CommandHandler("stats", stats))
     app.add_handler(CommandHandler("help", help_cmd))
     app.add_handler(CommandHandler("cancel", cancel))
-    app.add_handler(CallbackQueryHandler(session_callback, pattern=r"^ozon_session:"))
-    app.add_handler(MessageHandler(filters.Document.ALL, document))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, pasted_json_session))
+
+    # 2. Main menu reply keyboard buttons
     for label, handler in MAIN_MENU_ACTIONS:
         app.add_handler(MessageHandler(filters.Regex(f"^{label}$"), locals()[handler]))
+
+    # 3. Callback queries
+    app.add_handler(CallbackQueryHandler(session_callback, pattern=r"^ozon_session:"))
+
+    # 4. Documents (.json, .csv, .xlsx)
+    app.add_handler(MessageHandler(filters.Document.ALL, document))
+
+    # 5. Direct pasted JSON cookies
+    app.add_handler(MessageHandler(filters.Regex(r"^\s*[\[\{]") & ~filters.COMMAND, pasted_json_session))
