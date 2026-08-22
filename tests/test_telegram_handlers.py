@@ -44,9 +44,9 @@ class TelegramHandlerIntegrationTests(unittest.TestCase):
         context = SimpleNamespace(user_data={})
         asyncio.run(session_handler.callback(update, context))
 
-        self.assertIn('Бот откроет окно браузера', sent['text'])
+        self.assertIn('Cookie-Editor', sent['text'])
         self.assertNotIn('create_ozon_session.py', sent['text'])
-        self.assertEqual(sent['markup'].inline_keyboard[0][0].callback_data, 'ozon_session:open')
+        self.assertEqual(sent['markup'].inline_keyboard[0][0].callback_data, 'ozon_session:status')
 
     def test_cancel_clears_all_user_states(self):
         app = FakeApp()

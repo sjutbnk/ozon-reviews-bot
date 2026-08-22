@@ -11,7 +11,7 @@ from telegram.error import BadRequest
 from telegram.ext import CallbackQueryHandler, CommandHandler, ContextTypes, MessageHandler, filters
 
 from ozon_client import OzonClient
-from ozon_session import MAX_STORAGE_STATE_BYTES, OzonLoginWizard, SessionFileError, save_storage_state
+from ozon_session import MAX_STORAGE_STATE_BYTES, SessionFileError, save_storage_state
 
 logger = logging.getLogger(__name__)
 
@@ -40,22 +40,27 @@ def authorized(db):
 
 def session_prompt() -> str:
     return (
-        "🔐 <b>Подключение Ozon</b>\n\n"
-        "<b>Способ 1 (Самый простой для Docker / VPS)</b>:\n"
-        "Войдите в <code>seller.ozon.ru</code> в браузере, экспортируйте cookies (через расширение <i>Cookie-Editor</i>) "
-        "и просто пришлите JSON-файл или скопированный текст прямо в этот чат.\n\n"
-        "<b>Способ 2 (Через окно на компьютере)</b>:\n"
-        "Нажмите «Открыть Ozon». Бот откроет окно браузера на этом компьютере. Войдите в Ozon и нажмите «Я вошёл»."
+        "🔐 <b>Подключение Ozon Seller</b>\n\n"
+        "Бот работает на сервере и использует сессию вашего браузера.\n\n"
+        "<b>Инструкция по подключению (1 минута):</b>\n\n"
+        "1️⃣ <b>Установите Cookie-Editor</b> в браузер на вашем ПК:\n"
+        "   • <a href=\"https://chromewebstore.google.com/detail/cookie-editor/hlkenndednhfkekhgcdicdfddnkalmdm\">Chrome / Яндекс Браузер / Edge / Opera</a>\n"
+        "   • <a href=\"https://addons.mozilla.org/ru/firefox/addon/cookie-editor/\">Mozilla Firefox</a>\n\n"
+        "2️⃣ <b>Экспортируйте куки</b>:\n"
+        "   • Откройте <a href=\"https://seller.ozon.ru/\">seller.ozon.ru</a> и войдите в кабинет продавца.\n"
+        "   • Нажмите иконку <b>Cookie-Editor</b> на панели расширений.\n"
+        "   • Нажмите <b>Export</b> ➔ <b>Export as JSON</b> (куки скопируются в буфер обмена).\n\n"
+        "3️⃣ <b>Отправьте данные боту</b>:\n"
+        "   • Просто <b>вставьте скопированный текст</b> сюда в чат (Ctrl+V) или отправьте сохраненный <code>.json</code> файл.\n\n"
+        "<i>Бот автоматически проверит валидность сессии и сразу начнет поиск новых отзывов.</i>"
     )
 
 
 def session_menu() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         [
-            [InlineKeyboardButton("🌐 Открыть Ozon", callback_data="ozon_session:open")],
-            [InlineKeyboardButton("✅ Я вошёл", callback_data="ozon_session:finish")],
-            [InlineKeyboardButton("📎 Загрузить файл", callback_data="ozon_session:upload")],
-            [InlineKeyboardButton("✖️ Отмена", callback_data="ozon_session:cancel")],
+            [InlineKeyboardButton("🔄 Проверить текущую сессию", callback_data="ozon_session:status")],
+            [InlineKeyboardButton("✖️ Закрыть", callback_data="ozon_session:cancel")],
         ]
     )
 
@@ -98,8 +103,9 @@ async def _import_ozon_session(raw: bytes | str, reply_target, db, settings, pol
     except Exception:
         logger.exception("Ozon session upload validation failed")
         await reply_target.reply_text(
-            "⚠️ Ozon не подтвердил новую сессию (сессия не авторизована или истекла). "
-            "Войдите в Seller и экспортируйте куки заново."
+            "⚠️ <b>Ozon отклонил сессию</b> (сессия истекла или не завершен вход в Seller).\n"
+            "Войдите в <a href=\"https://seller.ozon.ru/\">seller.ozon.ru</a> и экспортируйте куки заново.",
+            parse_mode="HTML",
         )
         return False
 
@@ -117,7 +123,7 @@ async def _import_ozon_session(raw: bytes | str, reply_target, db, settings, pol
         db.log_action(None, user_id, "upload_ozon_session")
         await reply_target.reply_text(
             f"✅ <b>Ozon-сессия успешно обновлена и проверена!</b>\n"
-            f"Поиск отзывов выполнен. Новых без ответа: <b>{count}</b>.",
+            f"Поиск отзывов выполнен. Неотвеченных отзывов: <b>{count}</b>.",
             parse_mode="HTML",
         )
         return True
@@ -132,11 +138,11 @@ async def _import_ozon_session(raw: bytes | str, reply_target, db, settings, pol
 def register_commands(app, db, settings, poller, ozon=None) -> None:
     async def auth(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if not context.args or context.args[0] != settings.auth_password.get_secret_value():
-            await update.message.reply_text("🔒 Неверный пароль. Попробуйте ещё раз.")
+            await update.message.reply_text("🔒 Неверный пароль. Попробуйте ещё раз:\n<code>/auth ваш_пароль</code>", parse_mode="HTML")
             return
         db.authorize(update.effective_user.id)
         await update.message.reply_text(
-            f"{APP_TITLE}\n\n✅ Доступ открыт.\nВыберите действие:",
+            f"{APP_TITLE}\n\n✅ <b>Доступ открыт.</b>\nВыберите действие в меню ниже:",
             reply_markup=main_menu(),
             parse_mode="HTML",
         )
@@ -144,13 +150,13 @@ def register_commands(app, db, settings, poller, ozon=None) -> None:
     async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if db.is_authorized(update.effective_user.id):
             await update.message.reply_text(
-                f"{APP_TITLE}\n\nВаш рабочий стол для обработки отзывов.\nВыберите действие:",
+                f"{APP_TITLE}\n\n👋 <b>Рабочий стол обработки отзывов</b>\nВыберите действие в меню ниже:",
                 reply_markup=main_menu(),
                 parse_mode="HTML",
             )
         else:
             await update.message.reply_text(
-                f"{APP_TITLE}\n\n🔒 Для доступа используйте <code>/auth пароль</code>.",
+                f"{APP_TITLE}\n\n🔒 <b>Доступ закрыт.</b>\nДля входа используйте команду:\n<code>/auth пароль</code>",
                 parse_mode="HTML",
             )
 
@@ -160,17 +166,21 @@ def register_commands(app, db, settings, poller, ozon=None) -> None:
         try:
             count = await poller.check_once()
             await update.message.reply_text(
-                f"🔎 <b>Проверка завершена</b>\nНовых отзывов: <b>{count}</b>", parse_mode="HTML"
+                f"🔎 <b>Проверка завершена</b>\nНовых отзывов без ответа: <b>{count}</b>", parse_mode="HTML"
             )
         except Exception:
-            await update.message.reply_text("⚠️ Не удалось проверить Ozon.\nПроверьте сессию и логи сервера.")
+            await update.message.reply_text("⚠️ Не удалось проверить Ozon.\nПроверьте Ozon-сессию через кнопку «🔐 Ozon-сессия».")
 
     async def examples(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if not await authorized(db)(update, context):
             return
         await update.message.reply_text(
-            "🎨 <b>Стиль ответов</b>\n\nПришлите <code>.csv</code> или <code>.xlsx</code> с колонкой <code>reply</code>.\n"
-            "Колонка <code>review</code> необязательна.",
+            "🎨 <b>Стиль ответов</b>\n\n"
+            "Пришлите файл <code>.csv</code> или <code>.xlsx</code> с примерами ваших ответов.\n\n"
+            "📋 <b>Колонки таблицы:</b>\n"
+            "• <code>reply</code> — текст ответа (обязательно)\n"
+            "• <code>review</code> — текст отзыва (необязательно)\n\n"
+            "<i>Бот сохранит примеры и будет повторять ваш тон и стиль при генерации черновиков.</i>",
             parse_mode="HTML",
         )
         context.user_data["awaiting_examples"] = True
@@ -179,7 +189,7 @@ def register_commands(app, db, settings, poller, ozon=None) -> None:
         if not await authorized(db)(update, context):
             return
         context.user_data.pop("awaiting_session_upload", None)
-        await update.message.reply_text(session_prompt(), reply_markup=session_menu(), parse_mode="HTML")
+        await update.message.reply_text(session_prompt(), reply_markup=session_menu(), parse_mode="HTML", disable_web_page_preview=True)
 
     async def session_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         query = update.callback_query
@@ -189,69 +199,43 @@ def register_commands(app, db, settings, poller, ozon=None) -> None:
         await query.answer()
 
         action = query.data.split(":", 1)[1]
-        if action == "open":
-            old = context.user_data.pop("ozon_wizard", None)
-            if old:
-                await old.close()
-            wizard = OzonLoginWizard(settings.ozon_reviews_url)
-            try:
-                await wizard.start()
-            except Exception:
-                logger.exception("Could not open interactive Ozon login")
+        if action == "status":
+            if not Path(settings.ozon_storage_state).exists():
                 await _safe_edit_text(
                     query,
-                    "⚠️ Не удалось открыть окно Ozon на этом компьютере.\n"
-                    "Если бот запущен в Docker на VPS, используйте «Загрузить файл».",
+                    "⚠️ <b>Сессия Ozon ещё не подключена.</b>\n"
+                    "Экспортируйте куки из браузера и пришлите их сюда в чат.\n\n" + session_prompt(),
                     reply_markup=session_menu(),
+                    parse_mode="HTML",
                 )
                 return
-            context.user_data["ozon_wizard"] = wizard
-            await _safe_edit_text(
-                query,
-                "🌐 Окно Ozon открыто. Войдите в кабинет, затем нажмите «✅ Я вошёл».",
-                reply_markup=session_menu(),
-            )
-            return
-
-        if action == "upload":
-            context.user_data["awaiting_session_upload"] = True
-            await _safe_edit_text(
-                query,
-                "📎 Пришлите JSON-файл сессии Ozon. Бот проверит его и заменит текущую сессию только после проверки.",
-                reply_markup=session_menu(),
-            )
+            await _safe_edit_text(query, "⏳ <b>Проверяем сессию Ozon...</b>", reply_markup=session_menu(), parse_mode="HTML")
+            probe = OzonClient(settings.ozon_storage_state, settings.ozon_reviews_url)
+            try:
+                await probe.start()
+                await probe.validate_session()
+                await _safe_edit_text(
+                    query,
+                    "✅ <b>Ozon-сессия активна!</b>\nБот успешно подключён к Ozon Seller и готов к работе.",
+                    reply_markup=session_menu(),
+                    parse_mode="HTML",
+                )
+            except Exception:
+                await _safe_edit_text(
+                    query,
+                    "⚠️ <b>Сессия Ozon истекла или недействительна.</b>\n"
+                    "Обновите куки в браузере и пришлите новый JSON в чат.\n\n" + session_prompt(),
+                    reply_markup=session_menu(),
+                    parse_mode="HTML",
+                )
+            finally:
+                await probe.close()
             return
 
         if action == "cancel":
-            wizard = context.user_data.pop("ozon_wizard", None)
             context.user_data.pop("awaiting_session_upload", None)
-            if wizard:
-                await wizard.close()
-            await _safe_edit_text(query, "Подключение Ozon отменено.")
+            await _safe_edit_text(query, "Окно настройки сессии закрыто.")
             return
-
-        if action == "finish":
-            wizard = context.user_data.pop("ozon_wizard", None)
-            if not wizard:
-                await _safe_edit_text(query, "Сначала нажмите «🌐 Открыть Ozon».", reply_markup=session_menu())
-                return
-            try:
-                await wizard.save(settings.ozon_storage_state)
-                if ozon is not None:
-                    await ozon.restart()
-                await _safe_edit_text(query, "✅ Ozon подключён. Бот начнёт проверять отзывы автоматически.")
-            except SessionFileError as exc:
-                await _safe_edit_text(query, f"⚠️ {exc}", reply_markup=session_menu())
-                context.user_data["ozon_wizard"] = wizard
-                return
-            except Exception:
-                logger.exception("Could not finish interactive Ozon login")
-                await _safe_edit_text(
-                    query, "⚠️ Не удалось сохранить сессию. Попробуйте ещё раз.", reply_markup=session_menu()
-                )
-            finally:
-                if context.user_data.get("ozon_wizard") is not wizard:
-                    await wizard.close()
 
     async def document(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if not db.is_authorized(update.effective_user.id):
@@ -290,10 +274,10 @@ def register_commands(app, db, settings, poller, ozon=None) -> None:
             if not rows:
                 raise ValueError("нет непустых ответов")
             await update.message.reply_text(
-                f"✅ <b>Примеры загружены</b>\nДобавлено: <b>{db.add_examples(rows)}</b>", parse_mode="HTML"
+                f"✅ <b>Примеры загружены</b>\nДобавлено в базу: <b>{db.add_examples(rows)}</b>", parse_mode="HTML"
             )
         except Exception as exc:
-            await update.message.reply_text(f"⚠️ <b>Не удалось загрузить файл</b>\n{exc}", parse_mode="HTML")
+            await update.message.reply_text(f"⚠️ <b>Не удалось загрузить файл:</b>\n{exc}", parse_mode="HTML")
 
     async def pasted_json_session(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if not db.is_authorized(update.effective_user.id):
@@ -306,24 +290,31 @@ def register_commands(app, db, settings, poller, ozon=None) -> None:
                 await _import_ozon_session(text, update.message, db, settings, poller, ozon, update.effective_user.id)
 
     async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-        if await authorized(db)(update, context):
-            n = db.example_count()
-            stability = "✅ достаточно для стабильного стиля" if n >= 5 else "🟡 нужно ещё минимум 5 примеров"
-            await update.message.reply_text(
-                f"📊 <b>Статистика стиля</b>\n\nПримеров: <b>{n}</b>\nСтатус: {stability}", parse_mode="HTML"
-            )
+        if not await authorized(db)(update, context):
+            return
+        n = db.example_count()
+        stability = "✅ Достаточно (стиль активен)" if n >= 5 else "🟡 Рекомендуется добавить ещё (минимум 5)"
+        has_session = Path(settings.ozon_storage_state).exists()
+        session_status = "✅ Подключена" if has_session else "❌ Не подключена"
+        text = (
+            "📊 <b>Статистика системы</b>\n\n"
+            f"📁 <b>Примеров стиля:</b> <code>{n}</code>\n"
+            f"🎨 <b>Статус стиля:</b> {stability}\n"
+            f"🔐 <b>Ozon-сессия:</b> {session_status}\n\n"
+            "<i>Для обновления стиля пришлите .csv или .xlsx с примерами ответов.</i>"
+        )
+        await update.message.reply_text(text, parse_mode="HTML")
 
     async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         if not await authorized(db)(update, context):
             return
         await update.message.reply_text(
-            "❓ <b>Помощь</b>\n\n"
-            "🔎 Проверить отзывы: запустить поиск новых отзывов.\n"
-            "🎨 Стиль ответов: загрузить примеры из CSV/XLSX.\n"
-            "🔐 Ozon-сессия: открыть вход Ozon или загрузить готовую сессию.\n"
-            "📊 Статистика: посмотреть готовность стиля.\n\n"
-            "<code>/auth пароль</code>: открыть доступ.\n"
-            "<code>/cancel</code>: отменить текущее действие.",
+            "❓ <b>Справка по командам</b>\n\n"
+            "🔎 <b>Проверить отзывы</b> (<code>/check</code>) — запустить поиск новых отзывов в Ozon\n"
+            "🎨 <b>Стиль ответов</b> (<code>/examples</code>) — загрузить таблицу с примерами ответов\n"
+            "🔐 <b>Ozon-сессия</b> (<code>/session</code>) — инструкция и проверка сессии Ozon\n"
+            "📊 <b>Статистика</b> (<code>/stats</code>) — статус сессии и количество примеров стиля\n"
+            "❌ <b>Отмена</b> (<code>/cancel</code>) — отменить текущую загрузку или редактирование",
             parse_mode="HTML",
         )
 
@@ -333,9 +324,6 @@ def register_commands(app, db, settings, poller, ozon=None) -> None:
         context.user_data.pop("editing", None)
         context.user_data.pop("awaiting_examples", None)
         context.user_data.pop("awaiting_session_upload", None)
-        wizard = context.user_data.pop("ozon_wizard", None)
-        if wizard:
-            await wizard.close()
         await update.message.reply_text("Действие отменено.", reply_markup=main_menu())
 
     # 1. Slash commands

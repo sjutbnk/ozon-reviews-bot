@@ -21,8 +21,7 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
 py-modules = [
-  "main", "config", "database", "ai_generator", "ozon_client", "poller",
-  "create_ozon_session", "ozon_session",
+  "main", "config", "database", "ai_generator", "ozon_client", "poller", "ozon_session",
 ]
 
 [tool.setuptools.packages.find]

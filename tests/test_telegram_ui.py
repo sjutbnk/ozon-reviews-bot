@@ -64,8 +64,9 @@ class TelegramUiTests(unittest.TestCase):
 
     def test_session_flow_is_clear_and_offers_browser_setup(self):
         self.assertNotIn("create_ozon_session.py", session_prompt())
+        self.assertIn("Cookie-Editor", session_prompt())
         labels = [button.text for row in session_menu().inline_keyboard for button in row]
-        self.assertEqual(labels, ["🌐 Открыть Ozon", "✅ Я вошёл", "📎 Загрузить файл", "✖️ Отмена"])
+        self.assertEqual(labels, ["🔄 Проверить текущую сессию", "✖️ Закрыть"])
 
 
 if __name__ == "__main__":
